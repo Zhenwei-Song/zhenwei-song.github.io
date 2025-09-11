@@ -1,0 +1,462 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CPP兼容性问题分析 | 宋振威的博客</title><meta name="author" content="宋振威"><meta name="copyright" content="宋振威"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#CCDOCF"><meta name="description" content="现象描述若导出的 API 使用了 C++ 标准库类型（如 std::vector、std::map、std::string、std::shared_ptr 等），在不同编译环境、编译器、标准库版本 .so 调用时可能出现编译、链接或运行时异常，主要表现为：  链接符号未定义（undefined symbol）模板实例化或类型信息不一致导致崩溃接口数据结构错乱、内存访问异常结构体成员内容失真，数据读">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CPP兼容性问题分析">
+<meta property="og:url" content="https://zhenwei-song.github.io/2025/09/03/cpp%E5%85%BC%E5%AE%B9%E6%80%A7%E9%97%AE%E9%A2%98%E5%88%86%E6%9E%90/">
+<meta property="og:site_name" content="宋振威的博客">
+<meta property="og:description" content="现象描述若导出的 API 使用了 C++ 标准库类型（如 std::vector、std::map、std::string、std::shared_ptr 等），在不同编译环境、编译器、标准库版本 .so 调用时可能出现编译、链接或运行时异常，主要表现为：  链接符号未定义（undefined symbol）模板实例化或类型信息不一致导致崩溃接口数据结构错乱、内存访问异常结构体成员内容失真，数据读">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://zhenwei-song.github.io/img/IMG_20250831_175819.jpg">
+<meta property="article:published_time" content="2025-09-03T02:16:52.000Z">
+<meta property="article:modified_time" content="2025-09-11T08:04:53.733Z">
+<meta property="article:author" content="宋振威">
+<meta property="article:tag" content="C">
+<meta property="article:tag" content="C++">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://zhenwei-song.github.io/img/IMG_20250831_175819.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CPP兼容性问题分析",
+  "url": "https://zhenwei-song.github.io/2025/09/03/cpp%E5%85%BC%E5%AE%B9%E6%80%A7%E9%97%AE%E9%A2%98%E5%88%86%E6%9E%90/",
+  "image": "https://zhenwei-song.github.io/img/IMG_20250831_175819.jpg",
+  "datePublished": "2025-09-03T02:16:52.000Z",
+  "dateModified": "2025-09-11T08:04:53.733Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "宋振威",
+      "url": "mailto:zhenwei_song@foxmail.com"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.png"><link rel="canonical" href="https://zhenwei-song.github.io/2025/09/03/cpp%E5%85%BC%E5%AE%B9%E6%80%A7%E9%97%AE%E9%A2%98%E5%88%86%E6%9E%90/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#4b5863')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#CCDOCF')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          const mediaQueryDark = window.matchMedia('(prefers-color-scheme: dark)')
+          const mediaQueryLight = window.matchMedia('(prefers-color-scheme: light)')
+
+          if (theme === undefined) {
+            if (mediaQueryLight.matches) activateLightMode()
+            else if (mediaQueryDark.matches) activateDarkMode()
+            else {
+              const hour = new Date().getHours()
+              const isNight = hour <= 6 || hour >= 18
+              isNight ? activateDarkMode() : activateLightMode()
+            }
+            mediaQueryDark.addEventListener('change', () => {
+              if (saveToLocal.get('theme') === undefined) {
+                e.matches ? activateDarkMode() : activateLightMode()
+              }
+            })
+          } else {
+            theme === 'light' ? activateLightMode() : activateDarkMode()
+          }
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: undefined,
+  translate: undefined,
+  highlight: {"plugin":"prismjs","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'null',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: true
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CPP兼容性问题分析',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><meta name="generator" content="Hexo 7.3.0"></head><body><div id="web_bg" style="background-color: #CCD0CF;"></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">宋振威的博客</span></a><a class="nav-page-title" href="/"><span class="site-name">CPP兼容性问题分析</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><h1 class="post-title">CPP兼容性问题分析</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2025-09-03T02:16:52.000Z" title="发表于 2025年09月03日 10:16:52">2025年09月03日</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2025-09-11T08:04:53.733Z" title="更新于 2025年09月11日 16:04:53">2025年09月11日</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/tech/">技术</a></span></div><div class="meta-secondline"></div></div></div><article class="container post-content" id="article-container"><h1 id="现象描述"><a href="#现象描述" class="headerlink" title="现象描述"></a>现象描述</h1><p>若导出的 API 使用了 C++ 标准库类型（如 <code>std::vector</code>、<code>std::map</code>、<code>std::string</code>、<code>std::shared_ptr</code> 等），在不同编译环境、编译器、标准库版本 .so 调用时可能出现编译、链接或运行时异常，主要表现为：</p>
+<blockquote>
+<p>链接符号未定义（undefined symbol）<br>模板实例化或类型信息不一致导致崩溃<br>接口数据结构错乱、内存访问异常<br>结构体成员内容失真，数据读取错误</p>
+</blockquote>
+<h1 id="ABI-与-API-的区别"><a href="#ABI-与-API-的区别" class="headerlink" title="ABI 与 API 的区别"></a>ABI 与 API 的区别</h1><p>API（应用编程接口）：即头文件中的接口、类型和函数声明，描述了编译器和程序员可以用来编程的内容。</p>
+<p>ABI（应用二进制接口）：是编译后实体（如对象布局、名称修饰、虚表等）的具体二进制格式，决定不同二进制模块（如动态库、应用）之间能否兼容并联动。</p>
+<blockquote>
+<p><strong>库 API + 编译器 ABI &#x3D; 库 ABI</strong><br>不同编译器（或同一编译器的不同版本&#x2F;不同参数）生成的 ABI 规则可能不同，同样的 API 编译出来二进制层面可能不兼容。<br>只有库 API 和编译 ABI 规范都一致，最终的库 ABI 才和应用程序期待的一致。二者只要有一方不一致，库 ABI 就不一样，直接影响到二进制兼容问题。</p>
+</blockquote>
+<h2 id="进一步说明"><a href="#进一步说明" class="headerlink" title="进一步说明"></a>进一步说明</h2><ul>
+<li>C++ 的 ABI 由 多方面共同决定。 编译器实现、标准库实现、编译选项</li>
+<li>不同操作系统、编译器（GCC&#x2F;Clang&#x2F;MSVC）、标准库版本，以及不同 <code>-std=c++XX</code>&#x2F;<code>-O2/-g</code>&#x2F;各种 ABI 宏参数，均会影响生成的二进制布局。</li>
+</ul>
+<blockquote>
+<p>编译器实现不同：分别用 GCC 和 MSVC 这两种编译器来编译。<br>GCC 符号：_Z8set_nameR6PersonRKSs<br>MSVC 符号：?set_name@@YAXAUPerson@@AAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z</p>
+</blockquote>
+<blockquote>
+<p>标准库实现不同：C++11 前后一些关键类的名字在 ABI 层面生了改变（比如 std::string 和 std::list），导致 C++11 之前和之后编译出来的目标文件不兼容。换句话说如果某个库的提供方使用的是 C++11 之前的 ABI 编译的，那么依赖这个库的项目必须也用旧的 ABI 编译。</p>
+</blockquote>
+<blockquote>
+<p>编译选项不同：GCC 的 <code>_GLIBCXX_USE_CXX11_ABI</code>，不同设置会导致 <code>std::string</code>、<code>std::vector</code> 等内部结构变化。</p>
+</blockquote>
+<h1 id="STL-库实现差异导致的-ABI-不兼容"><a href="#STL-库实现差异导致的-ABI-不兼容" class="headerlink" title="STL 库实现差异导致的 ABI 不兼容"></a>STL 库实现差异导致的 ABI 不兼容</h1><h2 id="现象描述-1"><a href="#现象描述-1" class="headerlink" title="现象描述"></a>现象描述</h2><p>在编译 so 时使用的是 LLVM libc++，在另一平台使用该 so 时，编译报链接错误，缺少在 std::__ndk1 下对应的实现（so 中提供的是 std::__1 下的实现）。该现象存在于使用 C++ 的 STL 库的地方。</p>
+<p>std::__1 是 LLVM libc++（比如 macOS、iOS、部分非 NDK 构建下）的内部命名空间。</p>
+<p><img src="/../images/TQr3b39HgoznMCxRBaPchBAtnvX.png"></p>
+<p>std::__ndk1 是 Android NDK 下 LLVM libc++ 实现的 STL（标准模板库）内部命名空间。</p>
+<p><img src="/../images/I22jbaIZhohpIOxZ3iLc3Obsnvc.png"></p>
+<p>__1 与 __ndk1 的代码和接口几乎一样，但  二进制符号完全隔离，任何跨命名空间混用都是致命错误。</p>
+<blockquote>
+<p>使用命令 nm -DC xxx.so | grep shared_ptr 查看</p>
+</blockquote>
+<table>
+<tr>
+<td>项<br/></td><td>std::__1<br/></td><td>std::__ndk1<br/></td></tr>
+<tr>
+<td>适用平台<br/></td><td>macOS/iOS/Xcode/部分Linux<br/></td><td>Android NDK<br/></td></tr>
+<tr>
+<td>头文件实现路径<br/></td><td>cxx-stl/llvm-libc++/include<br/></td><td>cxx-stl/llvm-libc++/include<br/></td></tr>
+<tr>
+<td>名字空间<br/></td><td> std::__1<br/></td><td>std::__ndk1<br/></td></tr>
+<tr>
+<td>二进制符号名<br/></td><td> mangled __1<br/></td><td>mangled __ndk1<br/></td></tr>
+<tr>
+<td>兼容性<br/></td><td>不能混用<br/></td><td>不能混用<br/></td></tr>
+</table>
+
+
+<blockquote>
+<p>std::__1 vs std::__ndk1 是库 ABI 差异的一种（属于标准库实现者特意增加的符号级 ABI 隔离策略），而不是库 API 差异，也不是单纯的编译器 ABI 差异。</p>
+</blockquote>
+<h1 id="具体示例"><a href="#具体示例" class="headerlink" title="具体示例"></a>具体示例</h1><h2 id="std-shared-ptr"><a href="#std-shared-ptr" class="headerlink" title="std::shared_ptr"></a>std::shared_ptr</h2><pre class="line-numbers language-cpp" data-language="cpp"><code class="language-cpp">_<span class="token comment">// 实现_</span>
+<span class="token keyword">void</span> <span class="token class-name">EventChannel</span><span class="token double-colon punctuation">::</span><span class="token function">setStreamHandler</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>StreamHandler<span class="token operator">></span> _handler_<span class="token punctuation">)</span>
+<span class="token punctuation">&#123;</span>
+    <span class="token keyword">auto</span> requestHandler <span class="token operator">=</span>
+    std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">make_shared</span><span class="token generic class-name"><span class="token operator">&lt;</span>IncomingStreamRequestHandler<span class="token operator">></span></span></span><span class="token punctuation">(</span>handler<span class="token punctuation">,</span> messenger_<span class="token punctuation">,</span> name_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>taskQueue_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+    messenger_<span class="token operator">-></span><span class="token function">setMessageHandler</span><span class="token punctuation">(</span>name_<span class="token punctuation">,</span> requestHandler<span class="token punctuation">,</span>
+    std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">shared_ptr</span><span class="token generic class-name"><span class="token operator">&lt;</span>BinaryMessenger<span class="token double-colon punctuation">::</span>TaskQueue<span class="token operator">></span></span></span><span class="token punctuation">(</span>taskQueue_<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">&#125;</span>
+    <span class="token keyword">else</span> <span class="token punctuation">&#123;</span>
+    messenger_<span class="token operator">-></span><span class="token function">setMessageHandler</span><span class="token punctuation">(</span>name_<span class="token punctuation">,</span> requestHandler<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">&#125;</span>
+<span class="token punctuation">&#125;</span>
+_<span class="token comment">// 调用_</span>
+mTestEventHandler <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">make_shared</span><span class="token generic class-name"><span class="token operator">&lt;</span>MyStreamHandler<span class="token operator">></span></span></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+mTestEventChannel<span class="token operator">-></span><span class="token function">setStreamHandler</span><span class="token punctuation">(</span>mTestEventHandler<span class="token punctuation">)</span><span class="token punctuation">;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<h2 id="std-shared-ptr-std-string"><a href="#std-shared-ptr-std-string" class="headerlink" title="std::shared_ptr   std::string"></a>std::shared_ptr   std::string</h2><pre class="line-numbers language-cpp" data-language="cpp"><code class="language-cpp">_<span class="token comment">// 实现_</span>
+<span class="token class-name">EventChannel</span><span class="token double-colon punctuation">::</span><span class="token function">EventChannel</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>BMessenger<span class="token operator">></span> messenger<span class="token punctuation">,</span> <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string <span class="token operator">&amp;</span>channelName<span class="token punctuation">)</span>
+    <span class="token operator">:</span> <span class="token function">EventChannel</span><span class="token punctuation">(</span>messenger<span class="token punctuation">,</span> channelName<span class="token punctuation">,</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span><span class="token punctuation">&#125;</span>
+
+_<span class="token comment">// 调用_</span>
+std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>DMessenger<span class="token operator">></span> messenger <span class="token operator">=</span> executor<span class="token operator">-></span><span class="token function">getDMessenger</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+my_class<span class="token double-colon punctuation">::</span>EventChannel <span class="token function">eventChannel</span><span class="token punctuation">(</span>messenger<span class="token punctuation">,</span> <span class="token string">"com.example.stream"</span><span class="token punctuation">)</span><span class="token punctuation">;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<h1 id="解决思路"><a href="#解决思路" class="headerlink" title="解决思路"></a>解决思路</h1><ul>
+<li><p>新旧 ABI 共存（只适用于 GCC（libstdc++）系列的 STL）：<br>通过在新实现的命名空间加 <code>std::__cxx11::</code> 前缀（inline namespace），新老实现的类型获得不同的符号。例如：<br>    <code>std::__cxx11::list&lt;int&gt;</code> vs <code>std::list&lt;int&gt;</code></p>
+</li>
+<li><p>控制 ABI 切换的宏（只适用于 GCC（libstdc++）系列的 STL）：<br><code>-D_GLIBCXX_USE_CXX11_ABI=1</code>（默认，为新 ABI），设为 0 则用老 ABI。不同源码文件可以单独选择使用新&#x2F;旧 ABI。</p>
+</li>
+<li><p><strong>采用 C 接口</strong>：</p>
+<ol>
+<li>C 接口是明确规范的二进制接口，任何平台都能兼容，是业界跨模块&#x2F;语言边界的标准方案。</li>
+<li>C++ 可以自由引用 C 的代码而不出现二进制兼容问题。</li>
+</ol>
+</li>
+</ul>
+<blockquote>
+<p>官方建议<br>编译相互依赖的代码时，不要混用新旧 ABI 产物<br><a target="_blank" rel="noopener" href="https://gcc.gnu.org/onlinedocs/libstdc++/manual/abi.html">ABI Policy and Guidelines</a></p>
+</blockquote>
+<h2 id="最佳方案"><a href="#最佳方案" class="headerlink" title="最佳方案"></a>最佳方案</h2><ul>
+<li>对外只暴露 C 接口</li>
+<li>标准库&#x2F;模板&#x2F;复杂对象全部只在 C++ 内部使用</li>
+<li>修改代码生成新 so 后，与原先 so 进行 ABI 检查，确保兼容性</li>
+<li>可参考开源项目的 C 接口暴露方法，如 RocksDB</li>
+</ul>
+<h3 id="简单修改示例"><a href="#简单修改示例" class="headerlink" title="简单修改示例"></a>简单修改示例</h3><p><strong>std::vector 封装</strong></p>
+<p>头文件（C 接口）</p>
+<pre class="line-numbers language-cpp" data-language="cpp"><code class="language-cpp"><span class="token comment">//vector_c_api.h</span>
+<span class="token keyword">typedef</span> <span class="token keyword">void</span><span class="token operator">*</span> VectorHandle<span class="token punctuation">;</span>
+VectorHandle <span class="token function">vector_create</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">void</span> <span class="token function">vector_destroy</span><span class="token punctuation">(</span>VectorHandle v<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">void</span> <span class="token function">vector_push_back</span><span class="token punctuation">(</span>VectorHandle v<span class="token punctuation">,</span> <span class="token keyword">int</span> value<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">int</span> <span class="token function">vector_get</span><span class="token punctuation">(</span>VectorHandle v<span class="token punctuation">,</span> size_t index<span class="token punctuation">)</span><span class="token punctuation">;</span>
+size_t <span class="token function">vector_size</span><span class="token punctuation">(</span>VectorHandle v<span class="token punctuation">)</span><span class="token punctuation">;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<p>C++ 实现（so 内部）</p>
+<pre class="line-numbers language-cpp" data-language="cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"vector_c_api.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+
+<span class="token keyword">struct</span> <span class="token class-name">VectorWrapper</span> <span class="token punctuation">&#123;</span>
+    std<span class="token double-colon punctuation">::</span>vector<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> vec<span class="token punctuation">;</span>
+<span class="token punctuation">&#125;</span><span class="token punctuation">;</span>
+VectorHandle <span class="token function">vector_create</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+    <span class="token keyword">return</span> <span class="token keyword">new</span> <span class="token function">VectorWrapper</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">&#125;</span>
+<span class="token keyword">void</span> <span class="token function">vector_destroy</span><span class="token punctuation">(</span>VectorHandle _v_<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+    <span class="token keyword">delete</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>VectorWrapper<span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>v<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">&#125;</span>
+<span class="token keyword">void</span> <span class="token function">vector_push_back</span><span class="token punctuation">(</span>VectorHandle _v_<span class="token punctuation">,</span> <span class="token keyword">int</span> _value_<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+    <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>VectorWrapper<span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>v<span class="token punctuation">)</span><span class="token operator">-></span>vec<span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span>value<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">&#125;</span>
+<span class="token keyword">int</span> <span class="token function">vector_get</span><span class="token punctuation">(</span>VectorHandle _v_<span class="token punctuation">,</span> size_t _index_<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+    <span class="token keyword">return</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>VectorWrapper<span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>v<span class="token punctuation">)</span><span class="token operator">-></span>vec<span class="token punctuation">[</span>index<span class="token punctuation">]</span><span class="token punctuation">;</span>
+<span class="token punctuation">&#125;</span>
+size_t <span class="token function">vector_size</span><span class="token punctuation">(</span>VectorHandle _v_<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+    <span class="token keyword">return</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>VectorWrapper<span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>v<span class="token punctuation">)</span><span class="token operator">-></span>vec<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<h3 id="具体代码分析"><a href="#具体代码分析" class="headerlink" title="具体代码分析"></a>具体代码分析</h3><p>由于在我的项目中遇到的是 STL 库实现差异导致的 ABI 不兼容，所以仅针对 STL 库进行修改。</p>
+<p>思路是把 STL 形参改为 C 语言形式的形参，然后函数内部转换回 STL 形式。</p>
+<p><strong>示例 1</strong></p>
+<p>原始代码</p>
+<pre class="line-numbers language-cpp" data-language="cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token class-name">EventChannel</span><span class="token double-colon punctuation">::</span><span class="token function">setStreamHandler</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>StreamHandler<span class="token operator">></span> _handler_<span class="token punctuation">)</span>
+<span class="token punctuation">&#123;</span>
+    <span class="token keyword">auto</span> requestHandler <span class="token operator">=</span>
+    std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">make_shared</span><span class="token generic class-name"><span class="token operator">&lt;</span>IncomingStreamRequestHandler<span class="token operator">></span></span></span><span class="token punctuation">(</span>handler<span class="token punctuation">,</span> messenger_<span class="token punctuation">,</span> name_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>taskQueue_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+    messenger_<span class="token operator">-></span><span class="token function">setMessageHandler</span><span class="token punctuation">(</span>name_<span class="token punctuation">,</span> requestHandler<span class="token punctuation">,</span>
+    std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">shared_ptr</span><span class="token generic class-name"><span class="token operator">&lt;</span>BinaryMessenger<span class="token double-colon punctuation">::</span>TaskQueue<span class="token operator">></span></span></span><span class="token punctuation">(</span>taskQueue_<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">&#125;</span>
+    <span class="token keyword">else</span> <span class="token punctuation">&#123;</span>
+    messenger_<span class="token operator">-></span><span class="token function">setMessageHandler</span><span class="token punctuation">(</span>name_<span class="token punctuation">,</span> requestHandler<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">&#125;</span>
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<p>修改后</p>
+<pre class="line-numbers language-cpp" data-language="cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token class-name">EventChannel</span><span class="token double-colon punctuation">::</span><span class="token function">setStreamHandler</span><span class="token punctuation">(</span>StreamHandler <span class="token operator">*</span>_handler_<span class="token punctuation">)</span>
+<span class="token punctuation">&#123;</span>
+    <span class="token keyword">auto</span> handler_sp <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">shared_ptr</span><span class="token generic class-name"><span class="token operator">&lt;</span>StreamHandler<span class="token operator">></span></span></span><span class="token punctuation">(</span>handler<span class="token punctuation">,</span> <span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">(</span>StreamHandler <span class="token operator">*</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span><span class="token punctuation">&#125;</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">auto</span> requestHandler <span class="token operator">=</span>
+    std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">make_shared</span><span class="token generic class-name"><span class="token operator">&lt;</span>IncomingStreamRequestHandler<span class="token operator">></span></span></span><span class="token punctuation">(</span>handler_sp<span class="token punctuation">,</span> messenger_<span class="token punctuation">,</span> name_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>taskQueue_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+        messenger_<span class="token operator">-></span><span class="token function">setMessageHandler</span><span class="token punctuation">(</span>name_<span class="token punctuation">,</span> requestHandler<span class="token punctuation">,</span>
+        std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">shared_ptr</span><span class="token generic class-name"><span class="token operator">&lt;</span>BinaryMessenger<span class="token double-colon punctuation">::</span>TaskQueue<span class="token operator">></span></span></span><span class="token punctuation">(</span>taskQueue_<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">&#125;</span>
+    <span class="token keyword">else</span> <span class="token punctuation">&#123;</span>
+        messenger_<span class="token operator">-></span><span class="token function">setMessageHandler</span><span class="token punctuation">(</span>name_<span class="token punctuation">,</span> requestHandler<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">&#125;</span>
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<p><strong>示例 2</strong></p>
+<p>原始代码</p>
+<pre class="line-numbers language-typescript" data-language="typescript"><code class="language-typescript"><span class="token keyword">void</span> <span class="token function">showSystemOverlays</span><span class="token punctuation">(</span>std<span class="token operator">:</span><span class="token operator">:</span>vector<span class="token operator">&lt;</span><span class="token keyword">const</span> std<span class="token operator">:</span><span class="token operator">:</span><span class="token builtin">string</span><span class="token operator">></span> _overlays_<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>overlays<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+        <span class="token constant">ALOGD</span><span class="token punctuation">(</span><span class="token string">"showSystemOverlays overlays is null"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">return</span><span class="token punctuation">;</span>
+    <span class="token punctuation">&#125;</span>
+    <span class="token constant">ALOGD</span><span class="token punctuation">(</span><span class="token string">"showSystemOverlays called"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<p>修改后</p>
+<pre class="line-numbers language-cpp" data-language="cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token function">showSystemOverlays</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> <span class="token keyword">const</span><span class="token operator">*</span> _overlays_<span class="token punctuation">,</span> size_t _count_<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>overlays <span class="token operator">==</span> <span class="token keyword">nullptr</span> <span class="token operator">||</span> count <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+        <span class="token function">ALOGD</span><span class="token punctuation">(</span><span class="token string">"showSystemOverlays overlays is null or count==0"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">return</span><span class="token punctuation">;</span>
+    <span class="token punctuation">&#125;</span>
+    std<span class="token double-colon punctuation">::</span>vector<span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>string<span class="token operator">></span> overlay_list<span class="token punctuation">;</span>
+    overlay_list<span class="token punctuation">.</span><span class="token function">reserve</span><span class="token punctuation">(</span>count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">for</span><span class="token punctuation">(</span>size_t i<span class="token operator">=</span><span class="token number">0</span><span class="token punctuation">;</span> i<span class="token operator">&lt;</span>count<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+_        <span class="token comment">// NULL_</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>overlays<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">)</span>
+        overlay_list<span class="token punctuation">.</span><span class="token function">emplace_back</span><span class="token punctuation">(</span>overlays<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">else</span>
+        overlay_list<span class="token punctuation">.</span><span class="token function">emplace_back</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">&#125;</span>
+    <span class="token function">ALOGD</span><span class="token punctuation">(</span><span class="token string">"PlatformMessageHandlerImpl::showSystemOverlays called, overlays count = %zu"</span><span class="token punctuation">,</span> count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<h3 id="修改模板"><a href="#修改模板" class="headerlink" title="修改模板"></a>修改模板</h3><p><strong>std::shared_ptr<Foo></strong></p>
+<pre class="line-numbers language-cpp" data-language="cpp"><code class="language-cpp">_<span class="token comment">//h_</span>
+<span class="token keyword">void</span> <span class="token function">process_foo</span><span class="token punctuation">(</span><span class="token keyword">void</span><span class="token operator">*</span> _foo_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+_<span class="token comment">//cpp_</span>
+<span class="token keyword">class</span> <span class="token class-name">Foo</span> <span class="token punctuation">&#123;</span><span class="token punctuation">&#125;</span><span class="token punctuation">;</span>
+<span class="token keyword">void</span> <span class="token function">process_foo</span><span class="token punctuation">(</span><span class="token keyword">void</span><span class="token operator">*</span> _foo_<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+    Foo<span class="token operator">*</span> p <span class="token operator">=</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>Foo<span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>foo<span class="token punctuation">)</span><span class="token punctuation">;</span>
+_    <span class="token comment">// pC++_</span>
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<p><strong>std::string</strong></p>
+<pre class="line-numbers language-cpp" data-language="cpp"><code class="language-cpp">_<span class="token comment">//h_</span>
+<span class="token keyword">void</span> <span class="token function">process_string</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> _str_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+_<span class="token comment">//cpp_</span>
+<span class="token keyword">void</span> <span class="token function">process_string</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> _str_<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+std<span class="token double-colon punctuation">::</span>string <span class="token function">s</span><span class="token punctuation">(</span>str<span class="token punctuation">)</span><span class="token punctuation">;</span>_ <span class="token comment">// std::string_</span>
+_<span class="token comment">// s_</span>
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<p><strong>std::vector</strong></p>
+<pre class="line-numbers language-cpp" data-language="cpp"><code class="language-cpp">_<span class="token comment">//h_</span>
+<span class="token keyword">void</span> <span class="token function">process_numbers</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">int</span><span class="token operator">*</span> _arr_<span class="token punctuation">,</span> size_t _count_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">void</span> <span class="token function">process_strings</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> <span class="token keyword">const</span><span class="token operator">*</span> _arr_<span class="token punctuation">,</span> size_t _count_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+_<span class="token comment">//cpp_</span>
+<span class="token keyword">void</span> <span class="token function">process_numbers</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">int</span><span class="token operator">*</span> _arr_<span class="token punctuation">,</span> size_t _count_<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+    std<span class="token double-colon punctuation">::</span>vector<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> <span class="token function">v</span><span class="token punctuation">(</span>arr<span class="token punctuation">,</span> arr <span class="token operator">+</span> count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+_    <span class="token comment">// ..._</span>
+<span class="token punctuation">&#125;</span>
+<span class="token keyword">void</span> <span class="token function">process_strings</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> <span class="token keyword">const</span><span class="token operator">*</span> _arr_<span class="token punctuation">,</span> size_t _count_<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+    std<span class="token double-colon punctuation">::</span>vector<span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>string<span class="token operator">></span> vec<span class="token punctuation">;</span>
+    vec<span class="token punctuation">.</span><span class="token function">reserve</span><span class="token punctuation">(</span>count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span>size_t i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> count<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>arr<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">)</span> vec<span class="token punctuation">.</span><span class="token function">emplace_back</span><span class="token punctuation">(</span>arr<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">else</span> vec<span class="token punctuation">.</span><span class="token function">emplace_back</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">&#125;</span>
+_    <span class="token comment">// ..._</span>
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<p><strong>std::map</strong></p>
+<pre class="line-numbers language-cpp" data-language="cpp"><code class="language-cpp">_<span class="token comment">//h_</span>
+<span class="token keyword">typedef</span> <span class="token keyword">struct</span> <span class="token punctuation">&#123;</span>
+    <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> key<span class="token punctuation">;</span>
+    <span class="token keyword">int</span> value<span class="token punctuation">;</span>_ <span class="token comment">// or double/const char*_</span>
+<span class="token punctuation">&#125;</span> MapItem<span class="token punctuation">;</span>
+<span class="token keyword">void</span> <span class="token function">process_map</span><span class="token punctuation">(</span><span class="token keyword">const</span> MapItem<span class="token operator">*</span> _items_<span class="token punctuation">,</span> size_t _count_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+_<span class="token comment">//cpp_</span>
+<span class="token keyword">void</span> <span class="token function">process_map</span><span class="token punctuation">(</span><span class="token keyword">const</span> MapItem<span class="token operator">*</span> _items_<span class="token punctuation">,</span> size_t _count_<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+    std<span class="token double-colon punctuation">::</span>map<span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>string<span class="token punctuation">,</span> <span class="token keyword">int</span><span class="token operator">></span> m<span class="token punctuation">;</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span>size_t i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> count<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
+        m<span class="token punctuation">[</span>items<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>key<span class="token punctuation">]</span> <span class="token operator">=</span> items<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>value<span class="token punctuation">;</span>
+    <span class="token punctuation">&#125;</span>
+_    <span class="token comment">// ...C++ map_</span>
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<h1 id="ABI-检测"><a href="#ABI-检测" class="headerlink" title="ABI 检测"></a>ABI 检测</h1><h2 id="使用工具"><a href="#使用工具" class="headerlink" title="使用工具"></a>使用工具</h2><p>abigail-tools</p>
+<h2 id="安装"><a href="#安装" class="headerlink" title="安装"></a>安装</h2><p>sudo apt install abigail-tools</p>
+<h2 id="基本命令"><a href="#基本命令" class="headerlink" title="基本命令"></a>基本命令</h2><p>abidiff   libfoo_1.so libfoo_2.so</p>
+<h2 id="返回值"><a href="#返回值" class="headerlink" title="返回值"></a>返回值</h2><p>参考：<a target="_blank" rel="noopener" href="https://sourceware.org/libabigail/manual/abidiff.html">abidiff</a></p>
+<table>
+<tr>
+<td>名称<br/></td><td>位值<br/></td><td>说明<br/></td></tr>
+<tr>
+<td>ABIDIFF_ERROR<br/></td><td>1<br/></td><td>有错误<br/></td></tr>
+<tr>
+<td>ABIDIFF_USAGE_ERROR<br/></td><td>2<br/></td><td>用法错误（必须带 ABIDIFF_ERROR）<br/></td></tr>
+<tr>
+<td>ABIDIFF_ABI_CHANGE<br/></td><td>4<br/></td><td>有 ABI 变化<br/></td></tr>
+<tr>
+<td>ABIDIFF_ABI_INCOMPATIBLE_CHANGE<br/></td><td>8<br/></td><td>有 ABI 不兼容变化（必须带 ABI_CHANGE）<br/></td></tr>
+</table>
+
+
+<h2 id="常见情况对-ABI-的影响"><a href="#常见情况对-ABI-的影响" class="headerlink" title="常见情况对 ABI 的影响"></a>常见情况对 ABI 的影响</h2><table>
+<tr>
+<td>变化类型<br/></td><td>是否破坏 ABI<br/></td><td>说明<br/></td></tr>
+<tr>
+<td>增加/删除公有接口<br/></td><td>删除/修改才破坏<br/></td><td>增加一般安全<br/></td></tr>
+<tr>
+<td>结构体成员增删/重排<br/></td><td>是<br/></td><td>会导致对象布局变化<br/></td></tr>
+<tr>
+<td>虚表/多态函数增删/重排<br/></td><td>是<br/></td><td>运行时出错<br/></td></tr>
+<tr>
+<td>静态/全局变量符号增删<br/></td><td>是<br/></td><td>链接错误<br/></td></tr>
+<tr>
+<td>编译选项/宏改变<br/></td><td>可能<br/></td><td>看是否影响布局/符号<br/></td></tr>
+<tr>
+<td>STL/三方库升级<br/></td><td>可能<br/></td><td>与所用编译器相关<br/></td></tr>
+</table>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="mailto:zhenwei_song@foxmail.com">宋振威</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://zhenwei-song.github.io/2025/09/03/cpp%E5%85%BC%E5%AE%B9%E6%80%A7%E9%97%AE%E9%A2%98%E5%88%86%E6%9E%90/">https://zhenwei-song.github.io/2025/09/03/cpp%E5%85%BC%E5%AE%B9%E6%80%A7%E9%97%AE%E9%A2%98%E5%88%86%E6%9E%90/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://zhenwei-song.github.io" target="_blank">宋振威的博客</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/c/">C</a><a class="post-meta__tags" href="/tags/cpp/">C++</a></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/2025/09/11/32%E4%BD%8D%E7%B3%BB%E7%BB%9F%E5%92%8C64%E4%BD%8D%E7%B3%BB%E7%BB%9F%E7%9A%84%E4%BB%A3%E7%A0%81%E5%85%BC%E5%AE%B9%E6%80%A7/" title="如何确保 32 位系统和 64 位系统的代码兼容性"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">如何确保 32 位系统和 64 位系统的代码兼容性</div></div><div class="info-2"><div class="info-item-1">如何确保 32 位系统和 64 位系统的代码兼容性 数据类型选择  避免使用固定大小的类型（如 int），改用跨平台的精确宽度类型（如 int32_t、uint64_t 等 C&#x2F;C++ 中的 stdint.h 定义类型） 注意指针大小差异：32 位系统指针为 4 字节，64 位为 8 字节，避免将指针强制转换为 int 等固定大小类型   内存处理  计算内存大小时使用 sizeof()而非硬编码数值 注意数组索引和偏移量计算，避免因指针大小变化导致越界 序列化&#x2F;反序列化数据时明确指定类型大小，避免跨平台传输错误   常量与宏定义  避免使用依赖于系统位数的常量（如 0xFFFFFFFF 作为掩码在 32 位是全 1，64 位则不是） 使用条件编译区分不同架构（如 C&#x2F;C++ 中的 #ifdef _WIN64 或 #ifdef __x86_64__）   函数与库调用  注意库函数的参数和返回值类型是否与系统位数相关 确保链接正确版本的库文件（32 位&#x2F;64 位库不能混用） 对于 Windows API，注意使用正确的数据类型（如 HAND...</div></div></div></a><a class="pagination-related" href="/2025/08/31/%E4%B8%BA%E4%BD%95%E6%88%91%E5%BC%80%E5%A7%8B%E5%86%99%E5%8D%9A%E5%AE%A2/" title="为何我开始写博客"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">为何我开始写博客</div></div><div class="info-2"><div class="info-item-1">这是我个人博客的起点。我相信“输出是最好的输入”，在学习和工作的过程中，零散的笔记难以形成体系。 因此，我决定搭建这个博客，系统地记录我的技术探索、学习心得和生活中的点滴思考。 希望这里的文字能帮助未来的自己回顾成长。 </div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2025/09/11/32%E4%BD%8D%E7%B3%BB%E7%BB%9F%E5%92%8C64%E4%BD%8D%E7%B3%BB%E7%BB%9F%E7%9A%84%E4%BB%A3%E7%A0%81%E5%85%BC%E5%AE%B9%E6%80%A7/" title="如何确保 32 位系统和 64 位系统的代码兼容性"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025年09月11日</div><div class="info-item-2">如何确保 32 位系统和 64 位系统的代码兼容性</div></div><div class="info-2"><div class="info-item-1">如何确保 32 位系统和 64 位系统的代码兼容性 数据类型选择  避免使用固定大小的类型（如 int），改用跨平台的精确宽度类型（如 int32_t、uint64_t 等 C&#x2F;C++ 中的 stdint.h 定义类型） 注意指针大小差异：32 位系统指针为 4 字节，64 位为 8 字节，避免将指针强制转换为 int 等固定大小类型   内存处理  计算内存大小时使用 sizeof()而非硬编码数值 注意数组索引和偏移量计算，避免因指针大小变化导致越界 序列化&#x2F;反序列化数据时明确指定类型大小，避免跨平台传输错误   常量与宏定义  避免使用依赖于系统位数的常量（如 0xFFFFFFFF 作为掩码在 32 位是全 1，64 位则不是） 使用条件编译区分不同架构（如 C&#x2F;C++ 中的 #ifdef _WIN64 或 #ifdef __x86_64__）   函数与库调用  注意库函数的参数和返回值类型是否与系统位数相关 确保链接正确版本的库文件（32 位&#x2F;64 位库不能混用） 对于 Windows API，注意使用正确的数据类型（如 HAND...</div></div></div></a><a class="pagination-related" href="/2025/09/11/%E6%9F%94%E6%80%A7%E6%95%B0%E7%BB%84/" title="柔性数组"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025年09月11日</div><div class="info-item-2">柔性数组</div></div><div class="info-2"><div class="info-item-1">柔性数组的定义柔性数组必须是结构体的最后一个成员，且不能指定大小： struct flex_array  &#123;     int length;          // 用于记录数组元素数量     int data[];          // 柔性数组，不指定大小 &#125;;  柔性数组的特点 柔性数组只能作为结构体的最后一个成员 柔性数组不占用结构体的存储空间 通过结构体指针访问柔性数组 需要动态分配内存来使用柔性数组  使用示例#include &lt;stdio.h> #include &lt;stdlib.h> #include &lt;string.h>  // 定义包含柔性数组的结构体 struct flex_buffer &#123;     size_t size;         // 缓冲区大小     char data[];         // 柔性数组 &#125;;  // 创建一个柔性数组缓冲区 struct flex_buffer* create_buffer(size_t size) &#123;     // 分配内存：结构体大...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/img/IMG_20250831_175819.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">宋振威</div><div class="author-info-description">技术笔记、学习记录、生活随笔</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">4</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">3</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/Zhenwei-Song" target="_blank" title="Github"><i class="fab fa-github" style="color: #36383a;"></i></a><a class="social-icon" href="mailto:zhenwei_song@foxmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #36383a;"></i></a></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#%E7%8E%B0%E8%B1%A1%E6%8F%8F%E8%BF%B0"><span class="toc-number">1.</span> <span class="toc-text">现象描述</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#ABI-%E4%B8%8E-API-%E7%9A%84%E5%8C%BA%E5%88%AB"><span class="toc-number">2.</span> <span class="toc-text">ABI 与 API 的区别</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%BF%9B%E4%B8%80%E6%AD%A5%E8%AF%B4%E6%98%8E"><span class="toc-number">2.1.</span> <span class="toc-text">进一步说明</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#STL-%E5%BA%93%E5%AE%9E%E7%8E%B0%E5%B7%AE%E5%BC%82%E5%AF%BC%E8%87%B4%E7%9A%84-ABI-%E4%B8%8D%E5%85%BC%E5%AE%B9"><span class="toc-number">3.</span> <span class="toc-text">STL 库实现差异导致的 ABI 不兼容</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%8E%B0%E8%B1%A1%E6%8F%8F%E8%BF%B0-1"><span class="toc-number">3.1.</span> <span class="toc-text">现象描述</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#%E5%85%B7%E4%BD%93%E7%A4%BA%E4%BE%8B"><span class="toc-number">4.</span> <span class="toc-text">具体示例</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#std-shared-ptr"><span class="toc-number">4.1.</span> <span class="toc-text">std::shared_ptr</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#std-shared-ptr-std-string"><span class="toc-number">4.2.</span> <span class="toc-text">std::shared_ptr   std::string</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#%E8%A7%A3%E5%86%B3%E6%80%9D%E8%B7%AF"><span class="toc-number">5.</span> <span class="toc-text">解决思路</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%9C%80%E4%BD%B3%E6%96%B9%E6%A1%88"><span class="toc-number">5.1.</span> <span class="toc-text">最佳方案</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%AE%80%E5%8D%95%E4%BF%AE%E6%94%B9%E7%A4%BA%E4%BE%8B"><span class="toc-number">5.1.1.</span> <span class="toc-text">简单修改示例</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%85%B7%E4%BD%93%E4%BB%A3%E7%A0%81%E5%88%86%E6%9E%90"><span class="toc-number">5.1.2.</span> <span class="toc-text">具体代码分析</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BF%AE%E6%94%B9%E6%A8%A1%E6%9D%BF"><span class="toc-number">5.1.3.</span> <span class="toc-text">修改模板</span></a></li></ol></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#ABI-%E6%A3%80%E6%B5%8B"><span class="toc-number">6.</span> <span class="toc-text">ABI 检测</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BD%BF%E7%94%A8%E5%B7%A5%E5%85%B7"><span class="toc-number">6.1.</span> <span class="toc-text">使用工具</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%AE%89%E8%A3%85"><span class="toc-number">6.2.</span> <span class="toc-text">安装</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9F%BA%E6%9C%AC%E5%91%BD%E4%BB%A4"><span class="toc-number">6.3.</span> <span class="toc-text">基本命令</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%BF%94%E5%9B%9E%E5%80%BC"><span class="toc-number">6.4.</span> <span class="toc-text">返回值</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B8%B8%E8%A7%81%E6%83%85%E5%86%B5%E5%AF%B9-ABI-%E7%9A%84%E5%BD%B1%E5%93%8D"><span class="toc-number">6.5.</span> <span class="toc-text">常见情况对 ABI 的影响</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/09/11/%E6%9F%94%E6%80%A7%E6%95%B0%E7%BB%84/" title="柔性数组">柔性数组</a><time datetime="2025-09-11T05:46:52.000Z" title="发表于 2025年09月11日 13:46:52">2025年09月11日</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/09/11/32%E4%BD%8D%E7%B3%BB%E7%BB%9F%E5%92%8C64%E4%BD%8D%E7%B3%BB%E7%BB%9F%E7%9A%84%E4%BB%A3%E7%A0%81%E5%85%BC%E5%AE%B9%E6%80%A7/" title="如何确保 32 位系统和 64 位系统的代码兼容性">如何确保 32 位系统和 64 位系统的代码兼容性</a><time datetime="2025-09-11T05:43:07.000Z" title="发表于 2025年09月11日 13:43:07">2025年09月11日</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/09/03/cpp%E5%85%BC%E5%AE%B9%E6%80%A7%E9%97%AE%E9%A2%98%E5%88%86%E6%9E%90/" title="CPP兼容性问题分析">CPP兼容性问题分析</a><time datetime="2025-09-03T02:16:52.000Z" title="发表于 2025年09月03日 10:16:52">2025年09月03日</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/08/31/%E4%B8%BA%E4%BD%95%E6%88%91%E5%BC%80%E5%A7%8B%E5%86%99%E5%8D%9A%E5%AE%A2/" title="为何我开始写博客">为何我开始写博客</a><time datetime="2025-08-31T08:49:29.000Z" title="发表于 2025年08月31日 16:49:29">2025年08月31日</time></div></div></div></div></div></div></main><footer id="footer" style="background-color: #CCD0CF;"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2025 By 宋振威</span><span class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.5.0-b1</a></span></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><div class="js-pjax"></div></div></body></html>
